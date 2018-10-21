@@ -9,6 +9,7 @@ main =
       
 type Msg = GotIt | Ready | Show | TryAgain
 type Mode = Announce | Answer | Question | GameOver
+type Status = MoreDraw | MoreRetry | NoMore
 
 type alias Card = { chinese : String, pinyin : String , english  : String }
 type alias Deck = List Card
@@ -30,9 +31,34 @@ topCard seat =
         [] -> Nothing
         top :: _ -> Just top
 
+status : Seat -> Status
+status seat =
+    case (seat.draw, seat.retry) of
+        ([], []) -> NoMore
+        (_::_, _) -> MoreDraw
+        ([], _::_) -> MoreRetry
+
+tossCard : Seat -> Seat
+tossCard seat =
+    case seat.draw of
+        [] -> seat
+        _ :: newdraw -> { seat | draw = newdraw }
+                        
+saveCard : Seat -> Seat
+saveCard seat =
+    case seat.draw of
+        [] -> seat
+        card :: newdraw -> { seat | draw = newdraw
+                           , retry = seat.retry ++ [ card ] }
+
+restack : Seat -> Seat
+restack seat =
+    { seat | draw = seat.retry ++ seat.draw, retry = [] }
+          
+      
 init : Model
 init = { mode = Announce
-       , seat = dummySeat
+       , seat = {draw = [], retry = source}
        }
 
 -- UPDATE
@@ -41,15 +67,24 @@ update : Msg -> Model -> Model
 update msg model =
   case msg of
     Ready
-        -> {model | mode = Question}
+        -> {model | mode = Question, seat = restack model.seat}
+        
     Show
         -> {model | mode = Answer}
            
     GotIt
-        -> {model | mode = Question, seat = dummySeat}
+        -> let newseat = tossCard model.seat
+           in case status newseat of
+                  MoreDraw -> { model | mode = Question, seat = newseat }
+                  MoreRetry -> { model | mode = Question, seat = restack newseat }
+                  NoMore -> { model | mode = GameOver }
            
     TryAgain
-        -> {model | mode = Question, seat = dummySeat}
+        -> let newseat = saveCard model.seat
+           in case status newseat of
+                  MoreDraw -> { model | mode = Question, seat = newseat }
+                  MoreRetry -> { model | mode = Question, seat = restack newseat }
+                  NoMore -> { model | mode = GameOver }
 
 
 -- VIEW
