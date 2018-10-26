@@ -6,7 +6,7 @@ main =
   Browser.sandbox { init = init, update = update, view = view }
 
 -- MODEL
-      
+     
 type Msg = GotIt | Ready | Show | TryAgain
 type Mode = Announce | Answer | Question | GameOver
 type Status = MoreDraw | MoreRetry | NoMore
@@ -15,15 +15,6 @@ type alias Card = { chinese : String, pinyin : String , english  : String }
 type alias Deck = List Card
 type alias Seat = { draw : Deck, retry : Deck }
 type alias Model = { mode : Mode, seat : Seat }
-
-dummyCard : Card
-dummyCard = {chinese = "Chinese", pinyin = "Pinyin", english = "English"}
-            
-dummyDeck : Deck
-dummyDeck = [ dummyCard ]
-            
-dummySeat : Seat
-dummySeat = {draw = dummyDeck, retry = dummyDeck}
 
 topCard : Seat -> Maybe Card
 topCard seat =
@@ -43,48 +34,48 @@ tossCard seat =
     case seat.draw of
         [] -> seat
         _ :: newdraw -> { seat | draw = newdraw }
-                        
+
 saveCard : Seat -> Seat
 saveCard seat =
     case seat.draw of
         [] -> seat
         card :: newdraw -> { seat | draw = newdraw
-                           , retry = seat.retry ++ [ card ] }
+                           , retry = pushCard card seat.retry }
 
 restack : Seat -> Seat
 restack seat =
     { seat | draw = seat.retry ++ seat.draw, retry = [] }
           
+pushCard : Card -> Deck -> Deck
+pushCard card deck = deck ++ [ card ] 
+                        
       
 init : Model
+--   Start by putting all cards in the retry deck. These will be
+--   transfered to the draw deck on game start because a restack
+--   occurs at the beginning of every pass.
 init = { mode = Announce
        , seat = {draw = [], retry = source}
        }
 
 -- UPDATE
-       
+     
 update : Msg -> Model -> Model
 update msg model =
-  case msg of
-    Ready
-        -> {model | mode = Question, seat = restack model.seat}
-        
-    Show
-        -> {model | mode = Answer}
-           
-    GotIt
-        -> let newseat = tossCard model.seat
-           in case status newseat of
-                  MoreDraw -> { model | mode = Question, seat = newseat }
-                  MoreRetry -> { model | mode = Question, seat = restack newseat }
-                  NoMore -> { model | mode = GameOver }
-           
-    TryAgain
-        -> let newseat = saveCard model.seat
-           in case status newseat of
-                  MoreDraw -> { model | mode = Question, seat = newseat }
-                  MoreRetry -> { model | mode = Question, seat = restack newseat }
-                  NoMore -> { model | mode = GameOver }
+    let
+        -- Coupling the code to restore the seat invarient and the
+        -- code to dispatch the next message is wrong somehow.
+        manageSeat newseat =
+            case status newseat of
+                MoreDraw -> { model | mode = Question, seat = newseat }
+                MoreRetry -> { model | mode = Question, seat = restack newseat }
+                NoMore -> { model | mode = GameOver }
+    in
+        case msg of
+            Ready -> {model | mode = Question, seat = restack model.seat}
+            Show -> {model | mode = Answer}
+            GotIt -> manageSeat (tossCard model.seat)
+            TryAgain -> manageSeat (saveCard model.seat)
 
 
 -- VIEW
