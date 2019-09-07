@@ -1,0 +1,217 @@
+* JiYi Version 1
+** Real world, Abstracted
+This program models the physical actions of the student sitting at a
+table with a deck of flashcards. Each card has a question on one side
+and the answer on the other. 
+
+The student takes the top card and formulates an answer. The card is
+turned over, and student evaluates his/her accuracy and speed. If he is
+satisfied, the card is removed from play. Otherwise the card is placed
+in the 'retry' deck. When there are no more 'draw' deck cards, the retry
+deck is shuffled to become the new draw deck. The passes repeat until
+all card have been discarded.
+
+*** We can model this physical activity as a sequential process.
+
+    play-game  = play-round*
+    play-round = restack . pass-deck
+    pass-deck  = play-card*
+    play-card  = draw . dispose
+    dispose    = toss | keep
+
+*** The game state is modeled by a pair of decks.
+
+    type alias Card = {question: String, answer: String}
+    type alias Deck = List Card
+    type alias Seat = {draw: Deck, retry: Deck}
+
+    toss: Seat -> Seat
+    keep: Seat -> Seat
+    restack: Seat -> Seat
+
+    toss = seat.draw' = tail seat.draw
+           and seat.retry' = seat.retry
+
+    keep = seat.draw' = tail seat.draw
+           and seat.retry' = head seat.draw : seat.retry
+
+    restack = seat.draw' = shuffle seat.retry
+              and seat.retry' = []
+
+Take this polyglot notation as psuedocode.
+
+Toss and keep are partial functions but safe: it is impossible for the
+student to dispose of a card if he doesn't have any.
+
+** Interaction
+*** Process Models
+As a step towards implementation, we want to see the game and the
+student as two concurrent processes that interact with each other by
+passing messages.
+
+    game || student
+
+This is still a description of the real-world, and not computer
+code. But the more we can formalize the real-world description, the
+easier the transition will be to actual code.
+
+Both process have the same alphabet, but the messages are partitioned
+according to the sender:
+
+Game sends: 
+    Announce -- Notification that a new game is beginning
+    Question -- Issues question 
+    Answer   -- Issues question and answer
+    GameOver -- Notification that the game is over
+
+Student sends:
+    Ready    -- student asks for first question of a new game
+    Show     -- student asks to see the answer
+    GotIt    -- student self-score
+    TryAgain -- student self-score
+
+*** Processes filtered by what they send:
+
+    game = announce . play . gameover
+    play = card*
+    card = question . answer
+
+    student = ready 
+    drill   = topcard*
+    topcard = show . score
+    score   = gotit | tryagain
+
+*** Here are the processes showing both sent and received messages:
+
+        game = Announce! . Ready? . play . Gameover!
+        play = card*
+        card = Question! . Show? . Answer! . disposal
+    disposal = GotIt? | TryAgain?
+
+     student = Announce? . Ready!
+       drill = topcard*
+     topcard = Question? . Show! . Answer? . score
+       score = Gotit! | TryAgain!
+
+Given the ping-pong nature of our protocol, it is no surprise that
+these process mirror each other.
+
+We know that the game state changes in response to message events sent
+by the player. But this is a model of the process interaction only. We
+defer any thoughts about operations on state.
+
+** Elm Programming
+The Elm programming model is organized around two process-like procedures.
+
+    update : Msg -> Model -> Model
+    view   : Model -> Html Msg
+
+These procedures not called directly by the programmer's code. They are
+called by the Elm framework.
+
+A user event, like clicking on a button, is sent to the `update`
+function. That function is coded to match any possible event. The
+update function 'changes' the model appropriately. The function should
+not be concerned with how the model is viewed by the user.
+
+The view function evaluates the model and generates the appropriate
+HTML page. The HTML will include events that are recognized by the
+update function.
+
+The model usually has a tag that makes the view's evaluation simple: it
+just does a case-select on the tag and calls the corresponding HTML
+generating function.
+
+The tag makes the view function look sort of like a process that
+receives messages from the update function. We can understand a lot
+about what the program does if we know the messages accepted by the
+view function and the messages accepted by the update function.
+
+In the process model above, I described the messages exchanged between the
+game and the student. For each message, we know which process sends it
+and which process receives it. This information becomes important
+now. The update function receives player messages. The view function
+receives the game's message-like tags, and acts as a proxy for the user.
+
+The view function goes on to translate the game message/model to HTML
+and sends it to the player.
+
+There is a correspondence between the real-world model of `game ||
+player`, and Elm functions `update || view`. My design scheme is to
+first describe the real-world in semi-formal terms, and then translate
+that description into Elm code.
+
+* Old Stuff
+playcard='(SEND-question . RECV-show . SEND-answer . (RECV-got-it | RECV-try-again): scoring):play-card'
+jspre.py "(DO-init . (  (DO-restack.($playcard*):play-cards):play-deck  *):learn-all . SEND-gameover):session"
+
+seq session:
+    DO-init
+    SEND-Announce
+    RECV-Ready
+    rep learn-all:
+        seq play-deck:
+            DO-restack
+            rep play-cards:
+                seq play-card:
+                    SEND-Question
+                    RECV-Show
+                    SEND-Answer
+                    alt scoring:
+                        seq pass:
+                            RECV-GotIt
+                            DO-tossCard
+                        seq pass:
+                            RECV-TryAgain
+                            DO-saveCard
+                    DO-manageSeat
+    SEND-GameOver
+
+Write from Elm client point of view. Web pages are SENT to the
+user. Html events are RECEIVED from the user. The client Does state
+modifications. State update does not involve messaging.
+
+This is an in-browser app. There is no external saved state.
+
+I need to (1) discover and elaborate the DO-* procedures. And (2)
+flatten the structure to cases as used in update(). It is best to do (1)
+first as evaluating the current state will influence the cases listed in
+update(). Alternatively, doing (2) first can provide a quick working
+mock-up of user interaction.
+
+type alias Card   = {chinese: String, pinyin: String, english: String}
+type alias Deck   = List Card     -- Unique list would be better.
+type alias Seat   = { draw : Deck, retry : Deck }
+type alias Model  = { mode : Mode, seat : Seat }
+type       Status = MoreDraw | MoreRetry | NoMore
+type       Msg    = GotIt | Ready | Show | TryAgain
+type       Mode   = Announce | Answer | GameOver | Question
+
+source    : Deck
+pushCard  : Card -> Deck -> Deck         -- only on retry
+topCard   : Deck -> Maybe Card           -- only on draw
+
+status    : Seat -> Status
+tossCard  : Seat -> Seat
+saveCard  : Seat -> Seat
+restack   : Seat -> Seat
+
+-- pullCard  : Deck -> Maybe (Card, Deck)   -- only on draw
+-- emptyDeck : Deck                         -- []
+-- dealCard  : Seat -> Seat
+
+init       : Model
+update     : Msg -> Model -> Model
+manageSeat : Seat -> Model -> Model
+
+conditions
+----------
+learn-all     status == MoreRetry
+play-cards    status == MoreDraw
+
+update:
+
+  Ready ->
+  Show ->
+  GotIt ->
+  TryAgain ->
