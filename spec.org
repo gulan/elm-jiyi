@@ -38,7 +38,7 @@ all card have been discarded.
     restack = seat.draw' = shuffle seat.retry
               and seat.retry' = []
 
-Take this polyglot notation as psuedocode.
+Note: Take this polyglot notation as psuedocode.
 
 Toss and keep are partial functions but safe: it is impossible for the
 student to dispose of a card if he doesn't have any.
@@ -47,7 +47,7 @@ student to dispose of a card if he doesn't have any.
 *** Process Models
 As a step towards implementation, we want to see the game and the
 student as two concurrent processes that interact with each other by
-passing messages.
+passing messages. In CSP notation:
 
     game || student
 
@@ -81,6 +81,9 @@ Student sends:
     topcard = show . score
     score   = gotit | tryagain
 
+Note: I am using a regular grammar to describe process event
+traces.
+
 *** Here are the processes showing both sent and received messages:
 
         game = Announce! . Ready? . play . Gameover!
@@ -94,15 +97,16 @@ Student sends:
        score = Gotit! | TryAgain!
 
 Given the ping-pong nature of our protocol, it is no surprise that
-these process mirror each other.
+these processes mirror each other.
 
 We know that the game state changes in response to message events sent
 by the player. But this is a model of the process interaction only. We
 defer any thoughts about operations on state.
 
 ** Elm Programming
-The Elm programming model is organized around two process-like procedures.
+The Elm programming model is organized around three process-like procedures.
 
+    init   : Model
     update : Msg -> Model -> Model
     view   : Model -> Html Msg
 
@@ -114,9 +118,9 @@ function. That function is coded to match any possible event. The
 update function 'changes' the model appropriately. The function should
 not be concerned with how the model is viewed by the user.
 
-The view function evaluates the model and generates the appropriate
-HTML page. The HTML will include events that are recognized by the
-update function.
+The `view` function evaluates the model and generates the appropriate
+HTML page. The HTML will tag the buttons with the events that are
+recognized by the update function.
 
 The model usually has a tag that makes the view's evaluation simple: it
 just does a case-select on the tag and calls the corresponding HTML
@@ -140,78 +144,3 @@ There is a correspondence between the real-world model of `game ||
 player`, and Elm functions `update || view`. My design scheme is to
 first describe the real-world in semi-formal terms, and then translate
 that description into Elm code.
-
-* Old Stuff
-playcard='(SEND-question . RECV-show . SEND-answer . (RECV-got-it | RECV-try-again): scoring):play-card'
-jspre.py "(DO-init . (  (DO-restack.($playcard*):play-cards):play-deck  *):learn-all . SEND-gameover):session"
-
-seq session:
-    DO-init
-    SEND-Announce
-    RECV-Ready
-    rep learn-all:
-        seq play-deck:
-            DO-restack
-            rep play-cards:
-                seq play-card:
-                    SEND-Question
-                    RECV-Show
-                    SEND-Answer
-                    alt scoring:
-                        seq pass:
-                            RECV-GotIt
-                            DO-tossCard
-                        seq pass:
-                            RECV-TryAgain
-                            DO-saveCard
-                    DO-manageSeat
-    SEND-GameOver
-
-Write from Elm client point of view. Web pages are SENT to the
-user. Html events are RECEIVED from the user. The client Does state
-modifications. State update does not involve messaging.
-
-This is an in-browser app. There is no external saved state.
-
-I need to (1) discover and elaborate the DO-* procedures. And (2)
-flatten the structure to cases as used in update(). It is best to do (1)
-first as evaluating the current state will influence the cases listed in
-update(). Alternatively, doing (2) first can provide a quick working
-mock-up of user interaction.
-
-type alias Card   = {chinese: String, pinyin: String, english: String}
-type alias Deck   = List Card     -- Unique list would be better.
-type alias Seat   = { draw : Deck, retry : Deck }
-type alias Model  = { mode : Mode, seat : Seat }
-type       Status = MoreDraw | MoreRetry | NoMore
-type       Msg    = GotIt | Ready | Show | TryAgain
-type       Mode   = Announce | Answer | GameOver | Question
-
-source    : Deck
-pushCard  : Card -> Deck -> Deck         -- only on retry
-topCard   : Deck -> Maybe Card           -- only on draw
-
-status    : Seat -> Status
-tossCard  : Seat -> Seat
-saveCard  : Seat -> Seat
-restack   : Seat -> Seat
-
--- pullCard  : Deck -> Maybe (Card, Deck)   -- only on draw
--- emptyDeck : Deck                         -- []
--- dealCard  : Seat -> Seat
-
-init       : Model
-update     : Msg -> Model -> Model
-manageSeat : Seat -> Model -> Model
-
-conditions
-----------
-learn-all     status == MoreRetry
-play-cards    status == MoreDraw
-
-update:
-
-  Ready ->
-  Show ->
-  GotIt ->
-  TryAgain ->
